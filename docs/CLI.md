@@ -683,3 +683,17 @@ acpx --format json codex exec 'review latest diff for security issues' \
            | select(.sessionUpdate=="tool_call" or .sessionUpdate=="tool_call_update")
            | [(.status // "-"), (.title // "-")] | @tsv'
 ```
+
+### Queue request size
+
+`ACPX_QUEUE_MAX_REQUEST_BYTES` optionally bounds a queue owner's incoming request
+lines in UTF-8 bytes, excluding the newline. Unset, empty, or zero keeps the
+existing unlimited request size. Positive values must be safe integers.
+Clients with the same setting reject oversized submissions with
+`QUEUE_REQUEST_TOO_LARGE` before opening a socket. Owners disconnect a raw peer
+that exceeds the cap, including incomplete lines, while continuing to serve
+other clients. The existing owner-response limit is unchanged.
+
+An owner keeps the setting with which it starts; setting the variable does not
+reconfigure an already-running owner. Request JSON can be larger than the prompt
+file because it carries both structured content and display text.
