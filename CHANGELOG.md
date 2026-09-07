@@ -4,6 +4,14 @@
 
 Repo: https://github.com/openclaw/acpx
 
+## Unreleased
+
+### Changes
+
+### Breaking
+
+### Fixes
+
 ## 0.15.0 - 2026-09-07
 
 **Highlights:** Embedding hosts gain process lifecycle admission and transient child environments; optional limits bound shell output and ACP/queue input.
