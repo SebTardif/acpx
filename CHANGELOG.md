@@ -8,6 +8,8 @@ Repo: https://github.com/openclaw/acpx
 
 ### Changes
 
+- Agents/built-ins: add MiniMax Code through its native `mcode acp` server, with structured launch arguments and setup/lifecycle guidance. Thanks @hetaoBackend.
+
 ### Breaking
 
 ### Fixes
