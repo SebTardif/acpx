@@ -15,7 +15,7 @@ import type {
   SessionSendOutcome,
 } from "../../types.js";
 import { probeQueueOwnerHealth, type QueueOwnerHealth } from "./ipc-health.js";
-import { connectToQueueOwner, MAX_MESSAGE_BUFFER_SIZE } from "./ipc-transport.js";
+import { connectToQueueOwner } from "./ipc-transport.js";
 import {
   ensureOwnerIsUsable,
   type QueueOwnerRecord,
@@ -38,8 +38,10 @@ import {
   type QueueSetModeRequest,
   type QueueSubmitRequest,
 } from "./messages.js";
+import { assertQueueRequestSize } from "./request-limit.js";
 
-export { QUEUE_CONNECT_RETRY_MS, MAX_MESSAGE_BUFFER_SIZE } from "./ipc-transport.js";
+export { QUEUE_CONNECT_RETRY_MS } from "./ipc-transport.js";
+export const MAX_MESSAGE_BUFFER_SIZE = 10 * 1024 * 1024;
 export {
   isProcessAlive,
   releaseQueueOwnerLease,
@@ -204,6 +206,8 @@ async function runQueueOwnerRequest<TResult>(options: {
   onMessage: (message: QueueOwnerMessage, controls: QueueOwnerRequestControls<TResult>) => void;
   onClose: (controls: QueueOwnerRequestControls<TResult>) => void;
 }): Promise<TResult | undefined> {
+  const requestLine = JSON.stringify(options.request);
+  assertQueueRequestSize(requestLine);
   const socket = await connectToQueueOwner(options.owner);
   if (!socket) {
     return undefined;
@@ -299,7 +303,7 @@ async function runQueueOwnerRequest<TResult>(options: {
       options.onClose(controls);
     });
 
-    socket.write(`${JSON.stringify(options.request)}\n`);
+    socket.write(`${requestLine}\n`);
   });
 }
 

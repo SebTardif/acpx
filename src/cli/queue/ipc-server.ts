@@ -10,13 +10,13 @@ import type {
   PromptInput,
   SessionResumePolicy,
 } from "../../types.js";
-import { MAX_MESSAGE_BUFFER_SIZE } from "./ipc-transport.js";
 import {
   parseQueueRequest,
   type QueueOwnerErrorMessage,
   type QueueOwnerMessage,
   type QueueRequest,
 } from "./messages.js";
+import { queueRequestByteLimit, queueRequestExceedsLimit } from "./request-limit.js";
 
 type QueueOwnerSocketLease = {
   socketPath: string;
@@ -114,6 +114,7 @@ export type QueueOwnerControlHandlers = {
 
 type SessionQueueOwnerOptions = {
   maxQueueDepth: number;
+  maxRequestBytes?: number;
   onQueueDepthChanged?: (queueDepth: number) => void;
 };
 
@@ -122,6 +123,7 @@ export class SessionQueueOwner {
   private readonly controlHandlers: QueueOwnerControlHandlers;
   private readonly ownerGeneration?: number;
   private readonly maxQueueDepth: number;
+  private readonly maxRequestBytes?: number;
   private readonly onQueueDepthChanged?: (queueDepth: number) => void;
   private readonly pending: QueueTask[] = [];
   private readonly waiters: Array<(task: QueueTask | undefined) => void> = [];
@@ -140,6 +142,7 @@ export class SessionQueueOwner {
     this.controlHandlers = controlHandlers;
     this.ownerGeneration = lease.ownerGeneration;
     this.maxQueueDepth = Math.max(1, Math.round(options.maxQueueDepth));
+    this.maxRequestBytes = queueRequestByteLimit(options.maxRequestBytes?.toString());
     this.onQueueDepthChanged = options.onQueueDepthChanged;
   }
 
@@ -602,14 +605,13 @@ export class SessionQueueOwner {
     socket.on("data", (chunk: string) => {
       buffer += chunk;
 
-      if (buffer.length > MAX_MESSAGE_BUFFER_SIZE) {
-        socket.destroy();
-        return;
-      }
-
       let index = buffer.indexOf("\n");
       while (index >= 0) {
-        const line = buffer.slice(0, index).trim();
+        const rawLine = buffer.slice(0, index);
+        if (this.rejectOversizedRequest(socket, rawLine)) {
+          return;
+        }
+        const line = rawLine.trim();
         buffer = buffer.slice(index + 1);
 
         if (line.length > 0) {
@@ -618,10 +620,19 @@ export class SessionQueueOwner {
 
         index = buffer.indexOf("\n");
       }
+      this.rejectOversizedRequest(socket, buffer);
     });
 
     socket.on("error", () => {
       // no-op: queue processing continues even if client disconnects
     });
+  }
+
+  private rejectOversizedRequest(socket: net.Socket, line: string): boolean {
+    if (!queueRequestExceedsLimit(line, this.maxRequestBytes)) {
+      return false;
+    }
+    socket.destroy();
+    return true;
   }
 }
