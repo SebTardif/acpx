@@ -156,6 +156,10 @@ function waitMs(ms: number): Promise<void> {
   });
 }
 
+function onStreamError(): void {
+  // Child pipe failures must not terminate the ACP host; process exit owns status.
+}
+
 export class TerminalManager {
   private readonly cwd: string;
   private permissionMode: PermissionMode;
@@ -245,6 +249,8 @@ export class TerminalManager {
 
       proc.stdout.on("data", appendOutput);
       proc.stderr.on("data", appendOutput);
+      proc.stdout.on("error", onStreamError);
+      proc.stderr.on("error", onStreamError);
       proc.once("exit", (exitCode, signal) => {
         terminal.exitCode = exitCode;
         terminal.signal = signal;
@@ -470,7 +476,7 @@ export class TerminalManager {
       return;
     }
 
-    await this.waitForCleanupAfterSignal(terminal);
+    await this.waitForFinalCleanup(terminal);
   }
 
   private async signalProcess(terminal: ManagedTerminal, signal: NodeJS.Signals): Promise<void> {
@@ -493,11 +499,11 @@ export class TerminalManager {
   ): Promise<void> {
     await this.captureDescendantPids(terminal, pid);
     if (this.isRunning(terminal)) {
-      await killWindowsProcessTree(pid, signal);
+      await killWindowsProcessTree(pid, signal, terminal.processHelperTimeoutMs);
       return;
     }
     for (const descendantPid of terminal.descendantPids) {
-      await killWindowsProcessTree(descendantPid, signal);
+      await killWindowsProcessTree(descendantPid, signal, terminal.processHelperTimeoutMs);
     }
   }
 
@@ -524,6 +530,13 @@ export class TerminalManager {
     }
     for (const descendantPid of await listDescendantPids(pid, terminal.processHelperTimeoutMs)) {
       terminal.descendantPids.add(descendantPid);
+    }
+  }
+
+  private async waitForFinalCleanup(terminal: ManagedTerminal): Promise<void> {
+    const cleaned = await this.waitForCleanupAfterSignal(terminal);
+    if (!cleaned && process.platform === "win32") {
+      throw new Error("Terminal process cleanup did not finish after SIGKILL");
     }
   }
 
@@ -756,19 +769,20 @@ async function runWindowsProcessListCommand(timeoutMs: number): Promise<string> 
   );
 }
 
-async function killWindowsProcessTree(pid: number, signal: NodeJS.Signals): Promise<void> {
+export async function killWindowsProcessTree(
+  pid: number,
+  signal: NodeJS.Signals,
+  timeoutMs: number = PROCESS_HELPER_TIMEOUT_MS,
+): Promise<void> {
   const args = ["/pid", String(pid), "/t"];
   if (signal === "SIGKILL") {
     args.push("/f");
   }
-  await new Promise<void>((resolve) => {
-    const child = spawn("taskkill", args, {
-      stdio: ["ignore", "ignore", "ignore"],
-      windowsHide: true,
-    });
-    child.once("error", () => resolve());
-    child.once("close", () => resolve());
-  });
+  try {
+    await runTimedExecFile("taskkill", args, { timeoutMs, windowsHide: true });
+  } catch {
+    // Hung or missing taskkill must not block terminal/kill or terminal/release.
+  }
 }
 
 function sendSignal(pid: number, signal: NodeJS.Signals): void {
