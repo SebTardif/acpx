@@ -1,13 +1,51 @@
 import type { AnyMessage } from "@agentclientprotocol/sdk";
+import { AcpxOperationalError } from "../errors.js";
 import { shouldIgnoreNonJsonAgentOutputLine } from "./agent-command.js";
 import { isAcpMessageObject } from "./jsonrpc.js";
 
-export const MAX_NDJSON_INCOMPLETE_LINE_BYTES = 8 * 1024 * 1024;
-
-export function assertNdJsonIncompleteLineWithinLimit(content: string): void {
-  if (Buffer.byteLength(content) > MAX_NDJSON_INCOMPLETE_LINE_BYTES) {
-    throw new Error(`Incomplete NDJSON line exceeded ${MAX_NDJSON_INCOMPLETE_LINE_BYTES} bytes`);
+export class AcpMessageLimitError extends AcpxOperationalError {
+  constructor(limit: number) {
+    super(`ACP message exceeded ACPX_MAX_ACP_MESSAGE_BYTES (${limit} bytes)`, {
+      outputCode: "RUNTIME",
+      detailCode: "ACP_MESSAGE_TOO_LARGE",
+      origin: "acp",
+      retryable: false,
+    });
   }
+}
+
+export function readMaxAcpMessageBytes(
+  raw = process.env.ACPX_MAX_ACP_MESSAGE_BYTES,
+): number | undefined {
+  const value = raw?.trim();
+  if (!value) {
+    return undefined;
+  }
+  const bytes = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(bytes)) {
+    throw new Error(
+      "ACPX_MAX_ACP_MESSAGE_BYTES must be a non-negative safe integer; zero is unlimited",
+    );
+  }
+  return bytes === 0 ? undefined : bytes;
+}
+
+function countLineBytes(chunk: Uint8Array, retained: number, limit: number): number {
+  let start = 0;
+  while (start < chunk.length) {
+    const newline = chunk.indexOf(0x0a, start);
+    const end = newline < 0 ? chunk.length : newline;
+    retained += end - start;
+    if (retained > limit) {
+      throw new AcpMessageLimitError(limit);
+    }
+    if (newline < 0) {
+      return retained;
+    }
+    retained = 0;
+    start = end + 1;
+  }
+  return retained;
 }
 
 export function parseAcpJsonMessageLine(line: string): AnyMessage | undefined {
@@ -48,6 +86,8 @@ export function createNdJsonMessageStream(
   agentCommand: string,
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
+  maxMessageBytes?: number,
+  onReadError?: (error: Error) => void,
 ): {
   readable: ReadableStream<AnyMessage>;
   writable: WritableStream<AnyMessage>;
@@ -58,6 +98,7 @@ export function createNdJsonMessageStream(
   const readable = new ReadableStream<AnyMessage>({
     async start(controller) {
       let content = "";
+      let retainedBytes = 0;
       const reader = input.getReader();
       try {
         while (true) {
@@ -65,11 +106,10 @@ export function createNdJsonMessageStream(
           if (done) {
             break;
           }
-          if (!value) {
-            continue;
+          if (maxMessageBytes !== undefined) {
+            retainedBytes = countLineBytes(value, retainedBytes, maxMessageBytes);
           }
           content += textDecoder.decode(value, { stream: true });
-          assertNdJsonIncompleteLineWithinLimit(content);
           const lines = content.split("\n");
           content = lines.pop() || "";
           enqueueNdJsonLines(agentCommand, lines, controller);
@@ -78,6 +118,7 @@ export function createNdJsonMessageStream(
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         controller.error(error);
+        onReadError?.(error);
       } finally {
         reader.releaseLock();
       }

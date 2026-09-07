@@ -95,6 +95,7 @@ Friendly agent names resolve to commands:
 - `kilocode` -> `npx -y @kilocode/cli acp`
 - `kimi` -> `kimi acp`
 - `kiro` -> `kiro-cli-chat acp`
+- `mcode` -> `mcode acp` (install/authenticate MCode first; prefer `exec` for one-shot work, and require advertised ACP reload support for cross-invocation continuity)
 - `mux` -> `mux acp` via an ACPX-owned npm range
 - `opencode` -> `npx -y opencode-ai acp`
 - `pool` -> `pool acp`
@@ -147,11 +148,14 @@ Prompt options:
 ```bash
 acpx exec 'summarize this repo'
 acpx codex exec 'summarize this repo'
+acpx --model gpt-5.6-sol codex exec --config-option reasoning_effort=xhigh 'review this repo'
 ```
 
 Behavior:
 
 - Runs a single prompt in a temporary ACP session
+- Applies `--model`, then repeatable `--config-option <key=value>` selections, before prompting
+- Fails before the prompt if the adapter rejects a requested config option
 - Does not reuse or save persistent session state
 
 ### Compare (multi-agent one-shot)
