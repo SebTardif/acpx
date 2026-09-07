@@ -14,6 +14,8 @@ Repo: https://github.com/openclaw/acpx
 
 ### Fixes
 
+- ACP/terminal: clamp agent-supplied `outputByteLimit` to a 16 MiB host ceiling so a huge requested retention cannot grow host memory without bound. `0` still stores nothing, and the default remains 64 KiB. Thanks @SebTardif.
+
 ## 0.15.0 - 2026-09-07
 
 **Highlights:** Embedding hosts gain process lifecycle admission and transient child environments; optional limits bound shell output and ACP/queue input.

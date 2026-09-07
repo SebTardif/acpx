@@ -638,6 +638,7 @@ Related runtime behavior:
 - session storage path is derived from OS home directory (`~/.acpx/sessions`)
 - child processes inherit the current environment by default
 - Windows terminal kill and release requests fail if process cleanup cannot finish after escalation. The terminal remains available for a cleanup retry; restore a working `taskkill` command before retrying.
+- ACP `terminal/create` honors agent `outputByteLimit` up to a 16 MiB host ceiling. `0` still stores nothing. The default when omitted remains 64 KiB.
 
 ## Practical examples
 

@@ -27,6 +27,8 @@ import type { ClientOperation, NonInteractivePermissionPolicy, PermissionMode } 
 import { PROCESS_HELPER_TIMEOUT_MS, runTimedExecFile } from "./client-process.js";
 
 const DEFAULT_TERMINAL_OUTPUT_LIMIT_BYTES = 64 * 1024;
+// Host ceiling for agent-supplied terminal/create outputByteLimit. 0 still stores nothing.
+export const MAX_TERMINAL_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
 const DEFAULT_KILL_GRACE_MS = 1_500;
 
 type ManagedTerminal = {
@@ -103,6 +105,12 @@ export function buildTerminalSpawnOptions(
     platform,
     resolvedEnv ?? process.env,
   ) as TerminalSpawnOptions;
+}
+
+function resolveTerminalOutputByteLimit(requested: number | null | undefined): number {
+  const raw = requested ?? DEFAULT_TERMINAL_OUTPUT_LIMIT_BYTES;
+  const rounded = Number.isFinite(raw) ? Math.round(raw) : MAX_TERMINAL_OUTPUT_LIMIT_BYTES;
+  return Math.min(MAX_TERMINAL_OUTPUT_LIMIT_BYTES, Math.max(0, rounded));
 }
 
 function trimToUtf8Boundary(buffer: Buffer, limit: number): Buffer {
@@ -209,10 +217,7 @@ export class TerminalManager {
         throw new PermissionDeniedError("Permission denied for terminal/create");
       }
 
-      const outputByteLimit = Math.max(
-        0,
-        Math.round(params.outputByteLimit ?? DEFAULT_TERMINAL_OUTPUT_LIMIT_BYTES),
-      );
+      const outputByteLimit = resolveTerminalOutputByteLimit(params.outputByteLimit);
       const { proc, spawnCommand } = await spawnTerminalProcess(params, this.cwd);
 
       let resolveExit: (response: WaitForTerminalExitResponse) => void = () => {};
