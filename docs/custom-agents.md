@@ -138,3 +138,16 @@ OpenClaw repo-local checkout (the canonical "override a built-in" example):
 - [Agents](agents.md) — built-in registry.
 - [Config](config.md) — the `agents` map and precedence rules.
 - [Sessions](sessions.md) — how the agent command participates in scope keys.
+
+## Incoming message limits
+
+`ACPX_MAX_ACP_MESSAGE_BYTES` optionally limits each incoming ACP transport line
+to a non-negative safe integer number of bytes, excluding its final newline.
+Unset, empty, or zero preserves unlimited input. For example, set it to
+`8388608` to enforce an 8 MiB limit when starting a client or queue owner.
+
+The limit applies to complete messages and unfinished lines alike, regardless of
+how stdout chunks are split. This is an explicit maximum message size: choose a
+limit large enough for image and other structured responses. Overflow fails the
+connection with `ACP_MESSAGE_TOO_LARGE`, while invalid settings fail before an agent process is spawned.
+A warm owner keeps the setting with which its ACP connection was started.

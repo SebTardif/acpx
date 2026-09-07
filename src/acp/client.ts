@@ -115,7 +115,7 @@ import {
   waitForSpawn,
 } from "./client-process.js";
 import { extractAcpError } from "./error-shapes.js";
-import { isAcpMessageObject, isSessionUpdateNotification } from "./jsonrpc.js";
+import { isSessionUpdateNotification } from "./jsonrpc.js";
 import {
   modelStateFromConfigOptions,
   modelStateFromSessionResponse,
@@ -123,6 +123,11 @@ import {
   resolveRequestedModelId,
   type SessionModelState,
 } from "./model-support.js";
+import {
+  AcpMessageLimitError,
+  createNdJsonMessageStream,
+  readMaxAcpMessageBytes,
+} from "./ndjson-stream.js";
 import {
   formatSessionControlAcpSummary,
   maybeWrapSessionControlError,
@@ -137,6 +142,7 @@ export {
   resolveClaudeCodeSettingSources,
   shouldIgnoreNonJsonAgentOutputLine,
 };
+export { parseAcpJsonMessageLine } from "./ndjson-stream.js";
 
 const REPLAY_IDLE_MS = 80;
 const REPLAY_DRAIN_TIMEOUT_MS = 5_000;
@@ -505,91 +511,6 @@ function installSdkConsoleErrorSuppression(): () => void {
   };
 }
 
-function enqueueNdJsonLine(
-  agentCommand: string,
-  line: string,
-  controller: ReadableStreamDefaultController<AnyMessage>,
-): void {
-  const trimmedLine = line.trim();
-  if (!trimmedLine || shouldIgnoreNonJsonAgentOutputLine(agentCommand, trimmedLine)) {
-    return;
-  }
-  try {
-    const message = parseAcpJsonMessageLine(trimmedLine);
-    if (message) {
-      controller.enqueue(message);
-    }
-  } catch (err) {
-    console.error("Failed to parse JSON message:", trimmedLine, err);
-  }
-}
-
-export function parseAcpJsonMessageLine(line: string): AnyMessage | undefined {
-  const message: unknown = JSON.parse(line);
-  return isAcpMessageObject(message) ? message : undefined;
-}
-
-function enqueueNdJsonLines(
-  agentCommand: string,
-  lines: string[],
-  controller: ReadableStreamDefaultController<AnyMessage>,
-): void {
-  for (const line of lines) {
-    enqueueNdJsonLine(agentCommand, line, controller);
-  }
-}
-
-function createNdJsonMessageStream(
-  agentCommand: string,
-  output: WritableStream<Uint8Array>,
-  input: ReadableStream<Uint8Array>,
-): {
-  readable: ReadableStream<AnyMessage>;
-  writable: WritableStream<AnyMessage>;
-} {
-  const textEncoder = new TextEncoder();
-  const textDecoder = new TextDecoder();
-
-  const readable = new ReadableStream<AnyMessage>({
-    async start(controller) {
-      let content = "";
-      const reader = input.getReader();
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) {
-            break;
-          }
-          if (!value) {
-            continue;
-          }
-          content += textDecoder.decode(value, { stream: true });
-          const lines = content.split("\n");
-          content = lines.pop() || "";
-          enqueueNdJsonLines(agentCommand, lines, controller);
-        }
-      } finally {
-        reader.releaseLock();
-        controller.close();
-      }
-    },
-  });
-
-  const writable = new WritableStream<AnyMessage>({
-    async write(message) {
-      const content = JSON.stringify(message) + "\n";
-      const writer = output.getWriter();
-      try {
-        await writer.write(textEncoder.encode(content));
-      } finally {
-        writer.releaseLock();
-      }
-    },
-  });
-
-  return { readable, writable };
-}
-
 export class AcpClient {
   private options: AcpClientOptions;
   private connection?: AcpAgentConnection;
@@ -814,6 +735,7 @@ export class AcpClient {
       await this.close();
     }
 
+    const maxMessageBytes = readMaxAcpMessageBytes();
     const launch = await this.resolveAgentLaunchPlan();
     this.logAgentLaunch(launch);
     await this.ensureLaunchSupport(launch);
@@ -835,11 +757,21 @@ export class AcpClient {
 
     const input = Writable.toWeb(child.stdin);
     const output = Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>;
+    let connection: AcpAgentConnection | undefined;
     const stream = this.createTappedStream(
-      createNdJsonMessageStream(this.options.agentCommand, input, output),
+      createNdJsonMessageStream(
+        this.options.agentCommand,
+        input,
+        output,
+        maxMessageBytes,
+        (error) => {
+          this.rejectPendingConnectionRequests(error);
+          connection?.close?.(error);
+        },
+      ),
     );
 
-    const connection = this.createConnection(stream, launch);
+    connection = this.createConnection(stream, launch);
     connection.signal.addEventListener(
       "abort",
       () => {
@@ -1048,11 +980,10 @@ export class AcpClient {
     error: unknown,
   ): Promise<never> {
     params.startupFailure.dispose();
-    const normalizedError = await this.normalizeInitializeError(
-      error,
-      params.child,
-      params.startupStderr,
-    );
+    const normalizedError =
+      error instanceof AcpMessageLimitError
+        ? error
+        : await this.normalizeInitializeError(error, params.child, params.startupStderr);
     try {
       params.child.kill();
     } catch {
