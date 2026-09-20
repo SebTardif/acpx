@@ -90,6 +90,25 @@ export function isSessionUpdateNotification(message: AnyMessage): boolean {
   );
 }
 
+function sessionUpdateHasRequiredFields(update: Record<string, unknown>): boolean {
+  const kind = update.sessionUpdate;
+  if (typeof kind !== "string") {
+    return false;
+  }
+  if (
+    kind === "agent_message_chunk" ||
+    kind === "agent_thought_chunk" ||
+    kind === "user_message_chunk"
+  ) {
+    const content = asRecord(update.content);
+    return content !== null && typeof content.type === "string";
+  }
+  if (kind === "plan") {
+    return Array.isArray(update.entries);
+  }
+  return true;
+}
+
 export function extractSessionUpdateNotification(
   message: AnyMessage,
 ): SessionNotification | undefined {
@@ -108,7 +127,7 @@ export function extractSessionUpdateNotification(
   }
 
   const update = asRecord(params.update);
-  if (!update || typeof update.sessionUpdate !== "string") {
+  if (!update || !sessionUpdateHasRequiredFields(update)) {
     return undefined;
   }
 

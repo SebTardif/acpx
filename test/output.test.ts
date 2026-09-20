@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { extractSessionUpdateNotification } from "../src/acp/jsonrpc.js";
 import { createOutputFormatter, getTextErrorRemediationHints } from "../src/cli/output/output.js";
 
 class CaptureWriter {
@@ -97,6 +98,50 @@ for (const format of ["text", "quiet", "json"] as const) {
     }
   });
 }
+
+function malformedMessageChunk(): unknown {
+  return {
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+      },
+    },
+  };
+}
+
+test("extractSessionUpdateNotification ignores agent chunks without content", () => {
+  assert.equal(extractSessionUpdateNotification(malformedMessageChunk() as never), undefined);
+  assert.equal(
+    extractSessionUpdateNotification({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "session-1",
+        update: { sessionUpdate: "plan" },
+      },
+    } as never),
+    undefined,
+  );
+  const valid = extractSessionUpdateNotification(messageChunk("kept") as never);
+  assert.equal(valid?.update.sessionUpdate, "agent_message_chunk");
+});
+
+test("text and quiet formatters ignore agent_message_chunk updates without content", () => {
+  for (const format of ["text", "quiet"] as const) {
+    const stdout = new CaptureWriter();
+    const stderr = new CaptureWriter();
+    const formatter = createOutputFormatter(format, { stdout, stderr });
+    formatter.onAcpMessage(malformedMessageChunk() as never);
+    formatter.onAcpMessage(messageChunk("kept") as never);
+    formatter.onAcpMessage(doneResult("end_turn") as never);
+    formatter.flush();
+    assert.match(stdout.toString(), /kept/);
+    assert.equal(stderr.toString(), "");
+  }
+});
 
 test("text formatter batches thought chunks from ACP notifications", () => {
   const writer = new CaptureWriter();
