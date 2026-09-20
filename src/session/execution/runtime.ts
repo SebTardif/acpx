@@ -57,6 +57,7 @@ import { absolutePath, isoNow, resolveSessionRecord, writeSessionRecord } from "
 import { type QueueOwnerMessage, type QueueTask } from "../queue/ipc.js";
 import { type QueueOwnerActiveSessionController } from "../queue/owner-turn-controller.js";
 import { acquireSessionTurn } from "../turn-ownership.js";
+import { applyRereadClosedState } from "./closed-state.js";
 import type { RunOnceOptions, SessionSendOptions } from "./contracts.js";
 import { DISCARD_OUTPUT_FORMATTER } from "./discard-output.js";
 import { createOwnedSessionControls } from "./owned-controls.js";
@@ -775,28 +776,18 @@ async function runOwnedSessionPrompt(options: RunSessionPromptOptions): Promise<
       record.lastRequestId = options.requestId;
     }
   };
-  const preserveClosedState = async (): Promise<void> => {
+  const preserveClosedState = async (): Promise<boolean> => {
     const latest = await resolveSessionRecord(record.acpxRecordId).catch(() => undefined);
-    if (!latest?.closed) {
-      return;
-    }
-
-    record.closed = true;
-    record.closedAt = latest.closedAt ?? record.closedAt ?? isoNow();
-    record.pid = latest.pid;
-    if (latest.acpx) {
-      record.acpx = {
-        ...record.acpx,
-        ...latest.acpx,
-      };
-    }
+    return applyRereadClosedState(record, latest, isoNow());
   };
   const liveCheckpoint = new LiveSessionCheckpoint({
     save: async () => {
       await flushPendingMessages(false);
       record.lastUsedAt = isoNow();
       applyConversation(record, conversation);
-      await preserveClosedState();
+      if (!(await preserveClosedState())) {
+        return;
+      }
       await eventWriter.checkpoint();
     },
     onError: (error) => {
@@ -1043,8 +1034,6 @@ async function runOwnedSessionPrompt(options: RunSessionPromptOptions): Promise<
     output.flush();
     const now = isoNow();
     record.lastUsedAt = now;
-    record.closed = false;
-    record.closedAt = undefined;
     record.protocolVersion = client.initializeResult?.protocolVersion;
     record.agentCapabilities = client.initializeResult?.agentCapabilities;
     applyConversation(record, conversation);
@@ -1161,13 +1150,11 @@ async function runOwnedSessionPrompt(options: RunSessionPromptOptions): Promise<
       outcomes.push(await settleOperation(step));
     }
     // Checkpoint failures remain best effort; an append failure is reported by finishTurn.
-    for (const checkpoint of [
-      () => liveCheckpoint.flush(),
-      () => flushPendingMessages(false),
-      preserveClosedState,
-      () => eventWriter.checkpoint(),
-    ]) {
-      await settleOperation(checkpoint);
+    await settleOperation(() => liveCheckpoint.flush());
+    await settleOperation(() => flushPendingMessages(false));
+    const preserved = await settleOperation(preserveClosedState);
+    if (preserved.status === "fulfilled" && preserved.value) {
+      await settleOperation(() => eventWriter.checkpoint());
     }
     const failure = outcomes.find((outcome) => outcome.status === "rejected");
     if (failure) {
