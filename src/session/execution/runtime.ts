@@ -60,6 +60,7 @@ import { acquireSessionTurn } from "../turn-ownership.js";
 import type { RunOnceOptions, SessionSendOptions } from "./contracts.js";
 import { DISCARD_OUTPUT_FORMATTER } from "./discard-output.js";
 import { createOwnedSessionControls } from "./owned-controls.js";
+import { invokePromptActiveHook } from "./prompt-active-hook.js";
 
 const INTERRUPT_CANCEL_WAIT_MS = 2_500;
 
@@ -944,11 +945,9 @@ async function runOwnedSessionPrompt(options: RunSessionPromptOptions): Promise<
       return undefined;
     }
     return async () => {
-      try {
-        await options.onPromptActive?.();
-      } catch (error) {
+      await invokePromptActiveHook(options.onPromptActive, (error) => {
         emitPromptHookError(error, options.verbose);
-      }
+      });
     };
   };
 
