@@ -99,6 +99,16 @@ test("parseJsonObject supports strict and fenced-only modes", () => {
   );
 });
 
+test("compat JSON scan rejects brace spam without collecting every slice", () => {
+  const spam = "{".repeat(20_000);
+  assert.throws(() => extractJsonObject(spam), /Could not parse JSON/);
+});
+
+test("compat JSON scan does not walk oversized assistant text", () => {
+  const oversized = `${"x".repeat(1_048_577)}{"ok":true}`;
+  assert.throws(() => extractJsonObject(oversized), /Could not parse JSON/);
+});
+
 test("parseJsonObject parses fenced JSON without regex backtracking", () => {
   assert.deepEqual(parseJsonObject('```JSON\r\n{"ok":true}\n```', { mode: "fenced" }), {
     ok: true,

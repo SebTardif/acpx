@@ -63,8 +63,26 @@ function parseFencedJsonIfAllowed(
   return fencedText === null ? { ok: false } : tryParse(fencedText);
 }
 
+const COMPAT_BALANCED_JSON_MAX_BYTES = 1_048_576;
+const COMPAT_BALANCED_JSON_MAX_STARTS = 256;
+
 function parseBalancedJsonCandidate(text: string): { ok: true; value: unknown } | { ok: false } {
-  for (const candidate of extractBalancedJsonCandidates(text)) {
+  if (text.length > COMPAT_BALANCED_JSON_MAX_BYTES) {
+    return { ok: false };
+  }
+  let starts = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== "{" && text[index] !== "[") {
+      continue;
+    }
+    starts += 1;
+    if (starts > COMPAT_BALANCED_JSON_MAX_STARTS) {
+      return { ok: false };
+    }
+    const candidate = scanBalanced(text, index);
+    if (!candidate) {
+      continue;
+    }
     const parsed = tryParse(candidate);
     if (parsed.ok) {
       return parsed;
@@ -126,23 +144,6 @@ function extractFencedJsonText(text: string): string | null {
 
 function isFenceWhitespace(char: string | undefined): boolean {
   return char === " " || char === "\n" || char === "\r" || char === "\t";
-}
-
-function extractBalancedJsonCandidates(text: string): string[] {
-  const candidates: string[] = [];
-
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index] !== "{" && text[index] !== "[") {
-      continue;
-    }
-
-    const result = scanBalanced(text, index);
-    if (result) {
-      candidates.push(result);
-    }
-  }
-
-  return candidates;
 }
 
 function scanBalanced(text: string, startIndex: number): string | null {
