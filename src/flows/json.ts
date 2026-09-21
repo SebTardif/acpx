@@ -63,27 +63,34 @@ function parseFencedJsonIfAllowed(
   return fencedText === null ? { ok: false } : tryParse(fencedText);
 }
 
-const COMPAT_BALANCED_JSON_MAX_BYTES = 1_048_576;
-const COMPAT_BALANCED_JSON_MAX_STARTS = 256;
+const COMPAT_JSON_WORK_MULTIPLIER = 8;
+
+type JsonRecoveryBudget = { remaining: number };
+
+function consumeRecoveryWork(budget: JsonRecoveryBudget, units: number): boolean {
+  if (units > budget.remaining) {
+    budget.remaining = 0;
+    return false;
+  }
+  budget.remaining -= units;
+  return true;
+}
 
 function parseBalancedJsonCandidate(text: string): { ok: true; value: unknown } | { ok: false } {
-  if (text.length > COMPAT_BALANCED_JSON_MAX_BYTES) {
-    return { ok: false };
-  }
-  let starts = 0;
-  for (let index = 0; index < text.length; index += 1) {
+  const budget = { remaining: text.length * COMPAT_JSON_WORK_MULTIPLIER };
+  for (let index = 0; index < text.length && budget.remaining > 0; index += 1) {
     if (text[index] !== "{" && text[index] !== "[") {
       continue;
     }
-    starts += 1;
-    if (starts > COMPAT_BALANCED_JSON_MAX_STARTS) {
-      return { ok: false };
-    }
-    const candidate = scanBalanced(text, index);
-    if (!candidate) {
+    const end = scanBalanced(text, index, budget);
+    if (end === null) {
       continue;
     }
-    const parsed = tryParse(candidate);
+    // Reserve parsing work before allocating a slice, including failed parses.
+    if (!consumeRecoveryWork(budget, end - index)) {
+      return { ok: false };
+    }
+    const parsed = tryParse(text.slice(index, end));
     if (parsed.ok) {
       return parsed;
     }
@@ -146,12 +153,15 @@ function isFenceWhitespace(char: string | undefined): boolean {
   return char === " " || char === "\n" || char === "\r" || char === "\t";
 }
 
-function scanBalanced(text: string, startIndex: number): string | null {
+function scanBalanced(text: string, startIndex: number, budget: JsonRecoveryBudget): number | null {
   const stack: string[] = [];
   let inString = false;
   let escaped = false;
 
   for (let index = startIndex; index < text.length; index += 1) {
+    if (!consumeRecoveryWork(budget, 1)) {
+      return null;
+    }
     const char = text[index];
 
     if (inString) {
@@ -166,7 +176,7 @@ function scanBalanced(text: string, startIndex: number): string | null {
       continue;
     }
 
-    const result = scanBalancedToken(text, startIndex, index, char, stack);
+    const result = scanBalancedToken(index, char, stack);
     if (result !== SCAN_CONTINUE) {
       return result;
     }
@@ -178,12 +188,10 @@ function scanBalanced(text: string, startIndex: number): string | null {
 const SCAN_CONTINUE = Symbol("scan-continue");
 
 function scanBalancedToken(
-  text: string,
-  startIndex: number,
   index: number,
   char: string,
   stack: string[],
-): string | null | typeof SCAN_CONTINUE {
+): number | null | typeof SCAN_CONTINUE {
   if (char === "{" || char === "[") {
     stack.push(char);
     return SCAN_CONTINUE;
@@ -198,7 +206,7 @@ function scanBalancedToken(
   }
 
   stack.pop();
-  return stack.length === 0 ? text.slice(startIndex, index + 1) : SCAN_CONTINUE;
+  return stack.length === 0 ? index + 1 : SCAN_CONTINUE;
 }
 
 function balancedClosingTokenMatches(open: string | undefined, close: string): boolean {

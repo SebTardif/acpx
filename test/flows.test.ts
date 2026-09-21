@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -99,14 +100,57 @@ test("parseJsonObject supports strict and fenced-only modes", () => {
   );
 });
 
-test("compat JSON scan rejects brace spam without collecting every slice", () => {
-  const spam = "{".repeat(20_000);
-  assert.throws(() => extractJsonObject(spam), /Could not parse JSON/);
+test("compat JSON recovery preserves large and late candidates", () => {
+  assert.deepEqual(extractJsonObject(`${"x".repeat(1_048_577)}{"ok":true}`), { ok: true });
+  assert.deepEqual(extractJsonObject(`${"[x] ".repeat(1_000)}{"ok":true}`), { ok: true });
+  const value = { text: "x".repeat(1_048_577) };
+  const json = JSON.stringify(value);
+  for (const text of [json, `\`\`\`json\n${json}\n\`\`\``, `before ${json} after`]) {
+    assert.deepEqual(extractJsonObject(text), value);
+  }
 });
 
-test("compat JSON scan does not walk oversized assistant text", () => {
-  const oversized = `${"x".repeat(1_048_577)}{"ok":true}`;
-  assert.throws(() => extractJsonObject(oversized), /Could not parse JSON/);
+test("compat JSON recovery preserves candidate ordering and independent string state", () => {
+  for (const text of [
+    'before { broken {"ok":true} } after',
+    'before [mismatch} then {"ok":true}',
+  ]) {
+    assert.deepEqual(extractJsonObject(text), { ok: true });
+  }
+  assert.deepEqual(extractJsonObject('before [{"ok":true}] after'), [{ ok: true }]);
+  assert.deepEqual(extractJsonObject('"quoted {} prose" {"later":true}'), {});
+  assert.deepEqual(extractJsonObject('{"message":"{}", nope} {"later":true}'), {});
+});
+
+test("compat JSON recovery bounds scanning and failed parse work", () => {
+  const parserUrl = new URL("../src/flows/json.js", import.meta.url).href;
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import assert from 'node:assert/strict';
+    import { extractJsonObject } from ${JSON.stringify(parserUrl)};
+    for (const text of [
+      '{'.repeat(100_000),
+      '['.repeat(100_000) + '0,' + ']'.repeat(100_000),
+    ]) assert.throws(() => extractJsonObject(text), /Could not parse JSON/);
+    process.stdout.write('bounded');
+  `,
+    ],
+    { encoding: "utf8", timeout: 5_000 },
+  );
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "bounded");
+});
+
+test("compat recovery stops when ambiguous prefixes exhaust work before a valid candidate", () => {
+  const json = JSON.stringify({ text: "x".repeat(1_000) });
+  // Earlier unmatched openers consume scan work; the candidate also needs parse work.
+  assert.deepEqual(extractJsonObject(`${"{".repeat(6)}${json}`), JSON.parse(json));
+  assert.throws(() => extractJsonObject(`${"{".repeat(7)}${json}`), /Could not parse JSON/);
 });
 
 test("parseJsonObject parses fenced JSON without regex backtracking", () => {

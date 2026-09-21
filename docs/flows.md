@@ -44,6 +44,22 @@ remain append-only and retain their existing ordering and size behavior.
 
 `--input-json` and `--input-file` are mutually exclusive ways to provide flow input. `--default-agent` supplies the default agent profile for `acp` nodes that do not pin one.
 
+## Parsing JSON output
+
+`extractJsonObject(text)` and `parseJsonObject(text, { mode: "compat" })` try
+direct JSON, then a fenced JSON block, then balanced objects or arrays embedded
+in prose. Compatibility recovery parses candidates as it finds them and bounds
+the total scanning and parsing work relative to the input length. Large output
+or many separate malformed candidates do not by themselves prevent extraction.
+
+Repeatedly malformed or ambiguous prefixes can exhaust that recovery budget,
+including unmatched opening delimiters before a valid object. In that case the
+helper throws the usual `Could not parse JSON` error. Prefer direct or fenced
+JSON when recovery must not depend on surrounding prose; those parsing paths
+are unaffected by the compatibility recovery budget. Use
+`parseStrictJsonObject(text)` to require direct JSON, or `mode: "fenced"` to
+accept direct JSON and fenced blocks without embedded recovery.
+
 ## Node types
 
 Flows are graphs. Each node is one of:
