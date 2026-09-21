@@ -99,14 +99,29 @@ test("parseJsonObject supports strict and fenced-only modes", () => {
   );
 });
 
-test("compat JSON scan rejects brace spam without collecting every slice", () => {
+test("compat JSON scan rejects unmatched brace spam", () => {
   const spam = "{".repeat(20_000);
   assert.throws(() => extractJsonObject(spam), /Could not parse JSON/);
 });
 
-test("compat JSON scan does not walk oversized assistant text", () => {
-  const oversized = `${"x".repeat(1_048_577)}{"ok":true}`;
-  assert.throws(() => extractJsonObject(oversized), /Could not parse JSON/);
+test("compat JSON scan finds late JSON after cheap padding", () => {
+  assert.deepEqual(extractJsonObject(`${"x".repeat(1_048_577)}{"ok":true}`), { ok: true });
+});
+
+test("compat JSON scan finds JSON after many non-JSON brackets", () => {
+  assert.deepEqual(extractJsonObject(`${"[x] ".repeat(256)}{"ok":true}`), { ok: true });
+});
+
+test("compat JSON scan ignores quoted and escaped delimiters", () => {
+  assert.deepEqual(
+    extractJsonObject('note {"message":"[ not an array { still string","ok":true} tail'),
+    { message: "[ not an array { still string", ok: true },
+  );
+});
+
+test("direct JSON parse still accepts large objects", () => {
+  const payload = { ok: true, pad: "x".repeat(1_048_577) };
+  assert.deepEqual(extractJsonObject(JSON.stringify(payload)), payload);
 });
 
 test("parseJsonObject parses fenced JSON without regex backtracking", () => {
