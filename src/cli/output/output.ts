@@ -769,7 +769,7 @@ class TextOutputFormatter implements OutputFormatter {
     }
 
     const method = extractJsonRpcMethod(message);
-    if (method && method !== "session/prompt" && method !== "session/cancel") {
+    if (method && !["session/prompt", "session/cancel", "session/update"].includes(method)) {
       this.onClientOperation({
         method: method as ClientOperation["method"],
         status: "running",

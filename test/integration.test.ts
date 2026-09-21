@@ -83,6 +83,68 @@ test("integration: exec echo baseline", async () => {
   });
 });
 
+for (const format of ["text", "quiet", "json"] as const) {
+  test(`integration: ${format} output survives malformed agent updates`, async () => {
+    await withTempHome(async (homeDir) => {
+      const peerPath = path.join(homeDir, "malformed-agent.mjs");
+      await fs.writeFile(
+        peerPath,
+        `
+import readline from 'node:readline';
+const send = value => process.stdout.write(JSON.stringify({jsonrpc:'2.0', ...value})+'\\n');
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    send({id:request.id,result:{protocolVersion:1,agentCapabilities:{}}});
+  } else if (request.method === 'session/new') {
+    send({id:request.id,result:{sessionId:'malformed-proof'}});
+  } else if (request.method === 'session/prompt') {
+    for (const update of [
+      {sessionUpdate:'agent_message_chunk'},
+      {sessionUpdate:'agent_thought_chunk',content:null},
+      {sessionUpdate:'agent_message_chunk',content:{type:'text',text:1}},
+      {sessionUpdate:'plan'},
+      {sessionUpdate:'plan',entries:[null]},
+      {sessionUpdate:'agent_message_chunk',content:{type:'text',text:'survived malformed updates'}},
+    ]) send({method:'session/update',params:{sessionId:'malformed-proof',update}});
+    send({id:request.id,result:{stopReason:'end_turn'}});
+  }
+}).on('close', () => process.exit(0));
+`,
+      );
+      const result = await runCli(
+        [
+          "--cwd",
+          homeDir,
+          "--agent",
+          `${JSON.stringify(process.execPath)} ${JSON.stringify(peerPath)}`,
+          "--format",
+          format,
+          "exec",
+          "proof",
+        ],
+        homeDir,
+      );
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(result.stdout, /survived malformed updates/);
+      if (format === "json") {
+        const updates = parseJsonRpcOutputLines(result.stdout).filter(
+          (message) => "method" in message && message.method === "session/update",
+        );
+        assert.equal(updates.length, 6);
+        assert.match(result.stdout, /"stopReason":"end_turn"/);
+      } else {
+        assert.doesNotMatch(result.stdout, /\[client\] session\/update/);
+        if (format === "quiet") {
+          assert.equal(result.stdout, "survived malformed updates\n");
+        } else {
+          assert.match(result.stdout, /\[done\] end_turn/);
+        }
+      }
+    });
+  });
+}
+
 for (const completion of ["complete", "timeout", "cancel"] as const) {
   test(`integration: session turn ownership preserves a live flow during CLI ${completion}`, async () => {
     await withTempHome(async (homeDir) => {

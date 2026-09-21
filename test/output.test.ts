@@ -99,48 +99,78 @@ for (const format of ["text", "quiet", "json"] as const) {
   });
 }
 
-function malformedMessageChunk(): unknown {
+function sessionUpdate(update: Record<string, unknown>): unknown {
   return {
     jsonrpc: "2.0",
     method: "session/update",
     params: {
       sessionId: "session-1",
-      update: {
-        sessionUpdate: "agent_message_chunk",
-      },
+      update,
     },
   };
 }
 
-test("extractSessionUpdateNotification ignores agent chunks without content", () => {
-  assert.equal(extractSessionUpdateNotification(malformedMessageChunk() as never), undefined);
-  assert.equal(
-    extractSessionUpdateNotification({
-      jsonrpc: "2.0",
-      method: "session/update",
-      params: {
-        sessionId: "session-1",
-        update: { sessionUpdate: "plan" },
-      },
-    } as never),
-    undefined,
-  );
+const malformedUpdates = [
+  ...["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"].flatMap((kind) =>
+    [undefined, null, {}, { type: "text" }, { type: "text", text: 1 }].map((content) => ({
+      sessionUpdate: kind,
+      content,
+    })),
+  ),
+  ...[undefined, null, [null], [{}], [{ status: "pending", content: 1 }]].map((entries) => ({
+    sessionUpdate: "plan",
+    entries,
+  })),
+];
+
+test("extractSessionUpdateNotification rejects malformed chunks and plans", () => {
+  for (const update of malformedUpdates) {
+    assert.equal(extractSessionUpdateNotification(sessionUpdate(update) as never), undefined);
+  }
   const valid = extractSessionUpdateNotification(messageChunk("kept") as never);
   assert.equal(valid?.update.sessionUpdate, "agent_message_chunk");
 });
 
-test("text and quiet formatters ignore agent_message_chunk updates without content", () => {
+test("extractSessionUpdateNotification preserves nontext chunks, empty plans, and extension updates", () => {
+  for (const update of [
+    {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "image", data: "", mimeType: "image/png" },
+    },
+    { sessionUpdate: "plan", entries: [] },
+    { sessionUpdate: "vendor_update", value: 1 },
+  ]) {
+    assert.deepEqual(
+      extractSessionUpdateNotification(sessionUpdate(update) as never)?.update,
+      update,
+    );
+  }
+});
+
+test("text and quiet formatters keep valid output after malformed chunks and plans", () => {
   for (const format of ["text", "quiet"] as const) {
     const stdout = new CaptureWriter();
     const stderr = new CaptureWriter();
     const formatter = createOutputFormatter(format, { stdout, stderr });
-    formatter.onAcpMessage(malformedMessageChunk() as never);
+    for (const update of malformedUpdates) {
+      formatter.onAcpMessage(sessionUpdate(update) as never);
+    }
+    assert.equal(stdout.toString(), "");
     formatter.onAcpMessage(messageChunk("kept") as never);
     formatter.onAcpMessage(doneResult("end_turn") as never);
     formatter.flush();
     assert.match(stdout.toString(), /kept/);
     assert.equal(stderr.toString(), "");
   }
+});
+
+test("json output preserves malformed session notifications", () => {
+  const stdout = new CaptureWriter();
+  const formatter = createOutputFormatter("json", { stdout });
+  const message = sessionUpdate({ sessionUpdate: "agent_message_chunk" });
+  formatter.onAcpMessage(message as never);
+  formatter.flush();
+  assert.deepEqual(JSON.parse(stdout.toString()), message);
 });
 
 test("text formatter batches thought chunks from ACP notifications", () => {

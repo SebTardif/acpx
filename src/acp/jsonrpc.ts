@@ -100,13 +100,26 @@ function sessionUpdateHasRequiredFields(update: Record<string, unknown>): boolea
     kind === "agent_thought_chunk" ||
     kind === "user_message_chunk"
   ) {
-    const content = asRecord(update.content);
-    return content !== null && typeof content.type === "string";
+    return isChunkContent(update.content);
   }
   if (kind === "plan") {
-    return Array.isArray(update.entries);
+    return Array.isArray(update.entries) && update.entries.every(isPlanEntry);
   }
   return true;
+}
+
+function isChunkContent(value: unknown): boolean {
+  const content = asRecord(value);
+  return (
+    content !== null &&
+    typeof content.type === "string" &&
+    (content.type !== "text" || typeof content.text === "string")
+  );
+}
+
+function isPlanEntry(value: unknown): boolean {
+  const entry = asRecord(value);
+  return entry !== null && typeof entry.status === "string" && typeof entry.content === "string";
 }
 
 export function extractSessionUpdateNotification(

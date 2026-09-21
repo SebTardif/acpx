@@ -12,6 +12,7 @@ Repo: https://github.com/openclaw/acpx
 - Docs: correct session setup and query examples, clarify permission and storage boundaries, and synchronize agent guides with the current CLI.
 - Flows: stop late adapter and command dispatch after timeout or interruption, wait for owned process cleanup and pending writes before finishing, and keep concurrent runs' ACP clients separate. Function actions can use `context.signal` and `context.runShell`; PR triage preserves command diagnostics while refusing follow-up commands after cancellation.
 - CLI: honor inherited prompt files, queue wait intent, and session-list options before subcommands; prefer explicit child values and apply validation to the combined options. Watch now honors inherited named-session selection while keeping its journal cursor separate from list pagination.
+- CLI/output: skip malformed message chunks and plan updates in text and quiet output so later valid output and completion survive; preserve raw notifications in JSON output. Thanks @SebTardif.
 
 ## 0.18.0 - 2026-09-20
 
