@@ -7,6 +7,22 @@ export type PermissionPromptOptions = {
   signal?: AbortSignal;
 };
 
+export function visiblePromptText(value: string): string {
+  let rendered = "";
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint !== undefined &&
+      (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f))
+    ) {
+      rendered += `\\x${codePoint.toString(16).padStart(2, "0")}`;
+      continue;
+    }
+    rendered += character;
+  }
+  return rendered;
+}
+
 let promptQueue: Promise<void> = Promise.resolve();
 
 export async function promptForPermission(options: PermissionPromptOptions): Promise<boolean> {
@@ -33,11 +49,30 @@ export async function promptForPermission(options: PermissionPromptOptions): Pro
   }
 }
 
+function promptForDisplay(prompt: string): string {
+  // Templates start with a newline. Escape every control in the text after it.
+  if (prompt.startsWith("\n")) {
+    return `\n${visiblePromptText(prompt.slice(1))}`;
+  }
+  return visiblePromptText(prompt);
+}
+
+function assignVisiblePromptText(options: PermissionPromptOptions): void {
+  options.prompt = promptForDisplay(options.prompt);
+  if (options.header !== undefined) {
+    options.header = visiblePromptText(options.header);
+  }
+  if (options.details !== undefined) {
+    options.details = visiblePromptText(options.details);
+  }
+}
+
 async function askPermission(options: PermissionPromptOptions): Promise<boolean> {
   options.signal?.throwIfAborted();
   if (!canPrompt()) {
     return false;
   }
+  assignVisiblePromptText(options);
   writePromptDetails(options);
   const rl = readline.createInterface({
     input: process.stdin,

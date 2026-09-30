@@ -10,7 +10,7 @@ import { root, type Root } from "@openclaw/fs-safe/root";
 import { assertControlAuthority, type AcpControlAuthority } from "./async-control.js";
 import { PermissionDeniedError, PermissionPromptUnavailableError } from "./errors.js";
 import { sliceReadWindow } from "./file-read-window.js";
-import { promptForPermission } from "./permission-prompt.js";
+import { promptForPermission, visiblePromptText } from "./permission-prompt.js";
 import type { ClientOperation, NonInteractivePermissionPolicy, PermissionMode } from "./types.js";
 
 const WRITE_PREVIEW_MAX_LINES = 16;
@@ -51,8 +51,8 @@ async function defaultConfirmWrite(
   signal?: AbortSignal,
 ): Promise<boolean> {
   return await promptForPermission({
-    header: `[permission] Allow write to ${filePath}?`,
-    details: preview,
+    header: `[permission] Allow write to ${visiblePromptText(filePath)}?`,
+    details: visiblePromptText(preview),
     prompt: "Allow write? (y/N) ",
     signal,
   });
