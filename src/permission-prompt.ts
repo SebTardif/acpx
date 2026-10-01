@@ -7,7 +7,7 @@ export type PermissionPromptOptions = {
   signal?: AbortSignal;
 };
 
-export function visiblePromptText(value: string): string {
+function visiblePromptText(value: string): string {
   let rendered = "";
   for (const character of value) {
     const codePoint = character.codePointAt(0);
@@ -57,22 +57,11 @@ function promptForDisplay(prompt: string): string {
   return visiblePromptText(prompt);
 }
 
-function assignVisiblePromptText(options: PermissionPromptOptions): void {
-  options.prompt = promptForDisplay(options.prompt);
-  if (options.header !== undefined) {
-    options.header = visiblePromptText(options.header);
-  }
-  if (options.details !== undefined) {
-    options.details = visiblePromptText(options.details);
-  }
-}
-
 async function askPermission(options: PermissionPromptOptions): Promise<boolean> {
   options.signal?.throwIfAborted();
   if (!canPrompt()) {
     return false;
   }
-  assignVisiblePromptText(options);
   writePromptDetails(options);
   const rl = readline.createInterface({
     input: process.stdin,
@@ -89,7 +78,10 @@ async function askPermission(options: PermissionPromptOptions): Promise<boolean>
     rl.once("close", onClose);
   });
   try {
-    const answer = await Promise.race([rl.question(options.prompt, { signal }), closed]);
+    const answer = await Promise.race([
+      rl.question(promptForDisplay(options.prompt), { signal }),
+      closed,
+    ]);
     options.signal?.throwIfAborted();
     const normalized = answer?.trim().toLowerCase();
     return normalized === "y" || normalized === "yes";
@@ -111,9 +103,9 @@ function canPrompt(): boolean {
 
 function writePromptDetails(options: PermissionPromptOptions): void {
   if (options.header) {
-    process.stderr.write(`\n${options.header}\n`);
+    process.stderr.write(`\n${visiblePromptText(options.header)}\n`);
   }
   if (options.details && options.details.trim().length > 0) {
-    process.stderr.write(`${options.details}\n`);
+    process.stderr.write(`${options.details.split("\n").map(visiblePromptText).join("\n")}\n`);
   }
 }

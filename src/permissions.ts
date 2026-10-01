@@ -5,7 +5,7 @@ import {
   type ToolKind,
 } from "@agentclientprotocol/sdk";
 import { PermissionPromptUnavailableError } from "./errors.js";
-import { promptForPermission, visiblePromptText } from "./permission-prompt.js";
+import { promptForPermission } from "./permission-prompt.js";
 import type {
   AcpPermissionDecision,
   NonInteractivePermissionPolicy,
@@ -108,8 +108,8 @@ async function promptForToolPermission(
   params: RequestPermissionRequest,
   signal?: AbortSignal,
 ): Promise<boolean> {
-  const toolName = visiblePromptText(params.toolCall.title ?? "tool");
-  const toolKind = visiblePromptText(inferToolKind(params) ?? "other");
+  const toolName = params.toolCall.title ?? "tool";
+  const toolKind = inferToolKind(params) ?? "other";
   return await promptForPermission({
     prompt: `\n[permission] Allow ${toolName} [${toolKind}]? (y/N) `,
     signal,

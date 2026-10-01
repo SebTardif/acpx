@@ -17,7 +17,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import { assertControlAuthority, type AcpControlAuthority } from "../async-control.js";
 import { PermissionDeniedError, PermissionPromptUnavailableError } from "../errors.js";
-import { promptForPermission, visiblePromptText } from "../permission-prompt.js";
+import { promptForPermission } from "../permission-prompt.js";
 import {
   buildSpawnCommandOptions,
   buildTerminalShellSpawnCommand,
@@ -168,7 +168,7 @@ function trimToUtf8Boundary(buffer: Buffer, limit: number): Buffer {
 
 async function defaultConfirmExecute(commandLine: string, signal?: AbortSignal): Promise<boolean> {
   return await promptForPermission({
-    prompt: `\n[permission] Allow terminal command "${visiblePromptText(commandLine)}"? (y/N) `,
+    prompt: `\n[permission] Allow terminal command "${commandLine}"? (y/N) `,
     signal,
   });
 }

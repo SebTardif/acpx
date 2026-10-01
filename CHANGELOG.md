@@ -38,6 +38,7 @@ Repo: https://github.com/openclaw/acpx
 - Windows: preserve complete backslash runs before quotes and at the end of batch-wrapper arguments. Thanks @odrobnik.
 
 - Dependencies: refresh the ACP SDK, guarded filesystem runtime, formatter, and linter with compatible updates.
+- Permissions: display terminal controls visibly in approval prompts so commands, paths, and write previews cannot erase or overwrite the question. Thanks @SebTardif.
 
 ## 0.19.3 - 2026-09-25
 
