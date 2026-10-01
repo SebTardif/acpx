@@ -36,7 +36,6 @@ Repo: https://github.com/openclaw/acpx
 - Flow shells: collect final output after process exit with a bounded drain for inherited pipes, and reject invalid stdin before spawning. Thanks @odrobnik.
 - Flow timers: reject non-finite or overflowing node and shell deadlines before they become immediate timeouts. Thanks @odrobnik.
 - Windows: preserve complete backslash runs before quotes and at the end of batch-wrapper arguments. Thanks @odrobnik.
-- Permissions: escape control characters in confirmation prompts so a carriage return cannot hide the command, path, or preview. Spawned commands and written bytes are unchanged.
 
 - Dependencies: refresh the ACP SDK, guarded filesystem runtime, formatter, and linter with compatible updates.
 
