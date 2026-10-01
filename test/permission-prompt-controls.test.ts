@@ -73,7 +73,7 @@ describe("askPermission control escaping", () => {
     try {
       defineIsTTY(process.stdin);
       defineIsTTY(process.stderr);
-      process.stderr.write = ((
+      process.stderr.write = (
         chunk: string | Uint8Array,
         encoding?: unknown,
         callback?: unknown,
@@ -84,7 +84,7 @@ describe("askPermission control escaping", () => {
           done();
         }
         return true;
-      }) as typeof process.stderr.write;
+      };
 
       const controller = new AbortController();
       const pending = promptForPermission({
@@ -107,8 +107,8 @@ describe("askPermission control escaping", () => {
         }),
       ]);
 
-      // Readline closes a TTY question with its own CRLF. That terminator is not prompt text.
-      const promptText = captured.endsWith("\r\n") ? captured.slice(0, -2) : captured;
+      // Readline writes each TTY line as CRLF. Those pairs are not prompt text.
+      const promptText = captured.replaceAll("\r\n", "\n");
       assert.equal(promptText.includes("\r"), false);
       assert.equal(promptText.includes("\u001b"), false);
       assert.match(promptText, /notes\\x0dHIDDEN\.txt/);
