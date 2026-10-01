@@ -107,8 +107,10 @@ describe("askPermission control escaping", () => {
         }),
       ]);
 
-      // Readline writes each TTY line as CRLF. Those pairs are not prompt text.
-      const promptText = captured.replaceAll("\r\n", "\n");
+      // Readline cursor movement is CSI. A cancelled question ends in CRLF.
+      // Those bytes are not permission text.
+      const readlineCursor = new RegExp(`${String.fromCharCode(0x1b)}\\[[0-9;?]*[A-Za-z]`, "g");
+      const promptText = captured.replaceAll("\r\n", "\n").replaceAll(readlineCursor, "");
       assert.equal(promptText.includes("\r"), false);
       assert.equal(promptText.includes("\u001b"), false);
       assert.match(promptText, /notes\\x0dHIDDEN\.txt/);
