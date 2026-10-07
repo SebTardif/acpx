@@ -253,6 +253,64 @@ test("text formatter renders tool call lifecycle from ACP updates", () => {
   assert.equal((output.match(/\(completed\)/g) ?? []).length, 2);
 });
 
+test("text formatter reports malformed tool call fields instead of throwing", () => {
+  const writer = new CaptureWriter();
+  const formatter = createOutputFormatter("text", { stdout: writer });
+  const updates = [
+    {
+      sessionUpdate: "tool_call",
+      toolCallId: "bad-location",
+      title: "read",
+      locations: [{ path: 5 }],
+    },
+    {
+      sessionUpdate: "tool_call",
+      toolCallId: "bad-locations",
+      title: "read",
+      locations: { path: "README.md" },
+    },
+    {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "bad-content",
+      status: "completed",
+      content: [null],
+    },
+    {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "bad-diff",
+      status: "completed",
+      content: [{ type: "diff", path: "README.md" }],
+    },
+  ];
+  for (const update of updates) {
+    assert.doesNotThrow(() => {
+      formatter.onAcpMessage(sessionUpdate(update) as never);
+    });
+  }
+  const output = writer.toString();
+  assert.match(output, /Malformed tool call locations/);
+  assert.match(output, /Malformed tool call content/);
+  assert.match(output, /Malformed tool call diff/);
+  formatter.onAcpMessage(messageChunk("kept") as never);
+  assert.match(writer.toString(), /kept/);
+
+  const valid = new CaptureWriter();
+  const validFormatter = createOutputFormatter("text", { stdout: valid });
+  validFormatter.onAcpMessage(
+    sessionUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "good-diff",
+      title: "edit",
+      status: "completed",
+      locations: [{ path: "README.md", line: 4 }],
+      content: [{ type: "diff", path: "README.md", oldText: "a", newText: "a\nb" }],
+    }) as never,
+  );
+  assert.match(valid.toString(), /files: README.md:4/);
+  assert.match(valid.toString(), /diff README.md \(\+1 lines\)/);
+  assert.doesNotMatch(valid.toString(), /\[error\]/);
+});
+
 test("json formatter passes through ACP messages", () => {
   const writer = new CaptureWriter();
   const formatter = createOutputFormatter("json", {
